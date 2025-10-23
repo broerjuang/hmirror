@@ -61,6 +61,31 @@ disconnectmeToDomains() {
 		| sort | uniq
 }
 
+applyAllowlist() {
+	allowlistFile="${SCRIPT_DIR:?}/allowlist.txt"
+	
+	# If allowlist file doesn't exist or is empty, just pass through
+	if [ ! -f "${allowlistFile:?}" ] || [ ! -s "${allowlistFile:?}" ]; then
+		cat
+		return
+	fi
+	
+	# Save stdin to a temporary file first
+	tmpDomainsFile="$(mktemp)"
+	cat > "${tmpDomainsFile:?}"
+	
+	# Create temporary file for processed allowlist
+	tmpAllowlistFile="$(mktemp)"
+	{ grep -v '^[[:blank:]]*\(#\|$\)' -- "${allowlistFile:?}" || :; } \
+		| toLowercase | sort | uniq > "${tmpAllowlistFile:?}"
+	
+	# Remove allowlisted domains from the input
+	comm -23 -- "${tmpDomainsFile:?}" "${tmpAllowlistFile:?}"
+	
+	# Cleanup
+	rm -f -- "${tmpDomainsFile:?}" "${tmpAllowlistFile:?}"
+}
+
 main() {
 	sources="$(jq -r '.sources|map(select(.enabled))' -- "${SCRIPT_DIR:?}/sources.json")"
 	sourcesTotal="$(jq -nr --argjson d "${sources:?}" '$d|length-1')"
@@ -90,11 +115,11 @@ main() {
 			_IFS="${IFS?}"; IFS="$(printf '\nx')"; IFS="${IFS%x}"
 			# shellcheck disable=SC2086
 			if [ "${format:?}" = 'hosts' ]; then
-				hostsToDomains ${args?} < "${tmpFile:?}" > "${outFile:?}"
+				hostsToDomains ${args?} < "${tmpFile:?}" | applyAllowlist > "${outFile:?}"
 			elif [ "${format:?}" = 'adblock' ]; then
-				adblockToDomains ${args?} < "${tmpFile:?}" > "${outFile:?}"
+				adblockToDomains ${args?} < "${tmpFile:?}" | applyAllowlist > "${outFile:?}"
 			elif [ "${format:?}" = 'disconnectme' ]; then
-				disconnectmeToDomains ${args?} < "${tmpFile:?}" > "${outFile:?}"
+				disconnectmeToDomains ${args?} < "${tmpFile:?}" | applyAllowlist > "${outFile:?}"
 			fi
 			IFS="${_IFS?}"
 
